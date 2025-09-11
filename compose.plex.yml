@@ -1,425 +1,198 @@
-  
-###########################################################################
-# Main DB Creation
-###########################################################################
+# compose.traefik.yml
+#
+# Layer this on top of your existing base compose.yml that defines:
+#   - archon-server, archon-mcp, archon-agents, archon-frontend
+#
+# This override adds:
+#   - Traefik (edge proxy, 80/443)
+#   - Self-hosted Supabase: db, auth, rest, realtime, storage, kong, studio
+#   - LiteLLM (OpenAI-compatible gateway)
+#
+# Hostnames provided by Traefik:
+#   https://traefik.localhost
+#   https://archon.localhost
+#   https://archon-api.localhost
+#   https://supabase.localhost
+#   https://studio.localhost
+#   https://llm.localhost
+
 services:
+  ###########################################################################
+  # Traefik (Edge proxy)
+  ###########################################################################
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    profiles: ["backend", "frontend", "full"]
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --serversTransport.insecureSkipVerify=true
+      # Global HTTP -> HTTPS
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --log.level=DEBUG 
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [app-network]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./revan/traefik/certs.yaml:/etc/traefik/dynamic/certs.yaml:ro
+      - ./revan/certs:/etc/traefik/certs:ro
+    labels:
+      - traefik.enable=true
+      # Dashboard at https://traefik.localhost (basic auth from TRAEFIK_DASHBOARD_USERS)
+      - traefik.http.routers.traefik.rule=Host(`traefik.127.0.0.1.nip.io`)
+      - traefik.http.routers.traefik.entrypoints=websecure
+      - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}
+      - traefik.http.routers.traefik.middlewares=traefik-auth
+
+  ###########################################################################
+  # Archon (fronted by Traefik)
+  ###########################################################################
+  archon-frontend:
+    # Make the browser call the public hostname (Traefik) instead of localhost:8181
+    environment:
+      VITE_API_URL: https://archon-api.127.0.0.1.nip.io
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.archon-ui.rule=Host(`archon.127.0.0.1.nip.io`)
+      - traefik.http.routers.archon-ui.entrypoints=websecure
+      - traefik.http.routers.archon-ui.tls=true
+      - traefik.http.services.archon-ui.loadbalancer.server.port=3737
+    networks: [app-network]
+
+  archon-server:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.archon-api.rule=Host(`archon-api.127.0.0.1.nip.io`)
+      - traefik.http.routers.archon-api.entrypoints=websecure
+      - traefik.http.routers.archon-api.tls=true
+      - traefik.http.services.archon-api.loadbalancer.server.port=${ARCHON_SERVER_PORT:-8181}
+    networks: [app-network]
+
+
+  # Keep MCP & Agents internal
+  archon-mcp:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  archon-agents:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  ###########################################################################
+  # Supabase (self-hosted)
+  ###########################################################################
   supabase-db:
-    image: ghcr.io/supabase/postgres:15.8.1.131
-    container_name: supabase-db
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      PGVECTOR_ENABLED: "true"
-    volumes:
-      - supabase_db:/var/lib/postgresql/data
-      - ./revan/supabase/00-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL","pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 90s
-
-###########################################################################
-# DB init for sinlge postges source 
-###########################################################################
-
-  db-init-supabase:
-    image: postgres:15-alpine
-    restart: "no"
-    profiles: ["backend","full"]
-    networks: [app-network]
-    depends_on:
-      supabase-db:
-        condition: service_healthy
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-    # Mount the Archon repo migration file
-    volumes:
-      - ./migration/complete_setup.sql:/bootstrap/complete_setup.sql:ro
-    entrypoint: ["/bin/sh","-lc"]
-    command: |
-      set -eu
-      echo "⏳ waiting for Postgres..."
-      until pg_isready -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do sleep 1; done
-      echo "✅ Postgres is ready"
-
-      # 0) Required extensions for Archon (safe to re-run)
-      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-      CREATE EXTENSION IF NOT EXISTS vector;
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-      CREATE EXTENSION IF NOT EXISTS pgcrypto;
-      SQL
-
-      # 1) GoTrue skip markers (prevents the legacy backfill migration from running)
-      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-      CREATE SCHEMA IF NOT EXISTS auth;
-      CREATE TABLE IF NOT EXISTS auth.schema_migrations (version text PRIMARY KEY);
-      INSERT INTO auth.schema_migrations VALUES ('20221125140132') ON CONFLICT DO NOTHING;
-      INSERT INTO auth.schema_migrations VALUES ('20221208132122') ON CONFLICT DO NOTHING;
-      SQL
-
-      # 2) Realtime migration table shape guard (only touch if it exists and is wrong)
-      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-      DO $$
-      DECLARE
-        has_table boolean;
-        has_inserted_at boolean;
-        version_is_bigint boolean;
-        is_empty boolean;
-      BEGIN
-        SELECT EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_schema='public' AND table_name='schema_migrations'
-        ) INTO has_table;
-
-        IF NOT has_table THEN RETURN; END IF;
-
-        SELECT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='schema_migrations' AND column_name='inserted_at'
-        ) INTO has_inserted_at;
-
-        SELECT (data_type='bigint')
-        FROM information_schema.columns
-        WHERE table_schema='public' AND table_name='schema_migrations' AND column_name='version'
-        INTO version_is_bigint;
-
-        IF has_inserted_at AND version_is_bigint THEN RETURN; END IF;
-
-        SELECT COUNT(*)=0 FROM public.schema_migrations INTO is_empty;
-
-        IF is_empty THEN
-          EXECUTE 'DROP TABLE public.schema_migrations';
-          EXECUTE 'CREATE TABLE public.schema_migrations ("version" bigint PRIMARY KEY, "inserted_at" timestamp(0) NOT NULL DEFAULT now())';
-        ELSE
-          IF NOT has_inserted_at THEN
-            EXECUTE 'ALTER TABLE public.schema_migrations ADD COLUMN inserted_at timestamp(0) NOT NULL DEFAULT now()';
-          END IF;
-          IF NOT version_is_bigint THEN
-            EXECUTE 'ALTER TABLE public.schema_migrations ALTER COLUMN version TYPE bigint USING version::bigint';
-          END IF;
-        END IF;
-      END $$;
-      SQL
-
-      # 3) Load Archon DB objects exactly once (creates archon_settings and friends)
-      if [ "$(psql -At -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT to_regclass('public.archon_settings') IS NOT NULL")" = "t" ]; then
-        echo "ℹ️ 'public.archon_settings' already present — skipping complete_setup.sql"
-      else
-        echo "⚙️ Applying Archon migration: /bootstrap/complete_setup.sql"
-        psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /bootstrap/complete_setup.sql
-      fi
-
-      # 4) Ask PostgREST to refresh its schema cache (defense in depth)
-      psql -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "NOTIFY pgrst, 'reload schema';"
-
-      echo "✅ db-init-supabase done"
-
-  db-init-litellm:
-    image: postgres:15-alpine
-    restart: "no"
-    profiles: ["backend","full"]
-    networks: [app-network]
-    depends_on:
-      supabase-db:
-        condition: service_healthy
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-    entrypoint: ["/bin/sh","-lc"]
-    command: |
-      set -eu
-      echo "⏳ waiting for Postgres..."
-      until pg_isready -h supabase-db -U "$POSTGRES_USER" -d postgres >/dev/null 2>&1; do
-        sleep 1
-      done
-      echo "✅ Postgres ready"
-
-      # Ensure DB exists
-      if psql -h supabase-db -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='litellm'" | grep -q 1; then
-        echo "ℹ️  DB 'litellm' already exists"
-      else
-        echo "🆕 creating DB 'litellm'"
-        createdb -h supabase-db -U "$POSTGRES_USER" -O "$POSTGRES_USER" litellm
-      fi
-
-      until pg_isready -h supabase-db -U "$POSTGRES_USER" -d litellm >/dev/null 2>&1; do
-        sleep 1
-      done
-
-      # Safe baseline extensions
-      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d litellm <<'SQL'
-      CREATE SCHEMA IF NOT EXISTS public;
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-      CREATE EXTENSION IF NOT EXISTS pgcrypto;
-      GRANT ALL ON SCHEMA public TO CURRENT_USER;
-      ALTER SCHEMA public OWNER TO CURRENT_USER;
-      SQL
-
-      echo "✅ db-init-litellm done"
-
-###########################################################################
-# Supabase Apps
-###########################################################################
 
   supabase-auth:
-    image: supabase/gotrue:v2.178.0
-    container_name: supabase-auth
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db: { condition: service_healthy }
-      db-init-supabase: { condition: service_completed_successfully }
-    environment:
-      GOTRUE_SITE_URL: ${SUPABASE_PUBLIC_URL}
-      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL} 
-      GOTRUE_API_HOST: 0.0.0.0
-      GOTRUE_DB_DRIVER: postgres
-      GOTRUE_API_PORT: 9999
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
-      GOTRUE_DB_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
-      GOTRUE_JWT_SECRET: ${JWT_SECRET}
-      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_ADMIN_ROLES: service_role
-      GOTRUE_JWT_AUD: authenticated
-      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
-      GOTRUE_DISABLE_SIGNUP: "false"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-    healthcheck:
-      test: ["CMD","curl","-fsS","http://localhost:9999/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   supabase-rest:
-    image: postgrest/postgrest:latest
-    container_name: supabase-rest
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db: { condition: service_healthy }
-      db-init-supabase: { condition: service_completed_successfully }
-    environment:
-      PGRST_DB_URI: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
-      PGRST_DB_SCHEMAS: "public,storage"
-      PGRST_DB_CHANNEL_ENABLED: "true"
-      PGRST_DB_CHANNEL: pgrst
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-    healthcheck:
-      test: ["CMD","curl","-fsS","http://localhost:3000/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   supabase-meta:
-    image: supabase/postgres-meta:v0.78.0
-    container_name: supabase-meta
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db: { condition: service_healthy }
-    environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: supabase-db
-      PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: ${POSTGRES_DB:-postgres}
-      PG_META_DB_USER: ${POSTGRES_USER:-postgres}
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
-    healthcheck:
-      test: ["CMD","curl","-fsS","http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
 
   supabase-realtime:
-    image: supabase/realtime:v2.43.0
-    container_name: supabase-realtime
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db: { condition: service_healthy }
-      db-init-supabase: { condition: service_completed_successfully }
-    environment:
-      DB_HOST: supabase-db
-      DB_USER: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: ${POSTGRES_DB:-postgres}
-      PORT: 4000
-      JWT_SECRET: ${JWT_SECRET}
-      RLIMIT_NOFILE: "1048576"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      APP_NAME: realtime
-      RELEASE_DISTRIBUTION: none
-      ERL_AFLAGS: "-proto_dist inet_tcp"
-      CLUSTER_STRATEGIES: "POSTGRES"
-
-    ulimits:
-      nofile:
-        soft: 1048576
-        hard: 1048576
-    healthcheck:
-      test: ["CMD-SHELL","/bin/sh -c '</dev/tcp/localhost/4000'"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   supabase-storage:
-    image: supabase/storage-api:v1.26.3
-    container_name: supabase-storage
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db: { condition: service_healthy }
-      db-init-supabase: { condition: service_completed_successfully }
-      supabase-auth:
-        condition: service_started
-    environment:
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      POSTGREST_URL: http://supabase-rest:3000
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
-      FILE_SIZE_LIMIT: 52428800
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
-    volumes:
-      - supabase_storage:/var/lib/storage
-    healthcheck:
-      test: ["CMD","curl","-fsS","http://localhost:5000/status"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   supabase-kong:
-    image: ghcr.io/supabase/kong:2.8.1
-    container_name: supabase-kong
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.supabase.rule=Host(`supabase.127.0.0.1.nip.io`)
+      - traefik.http.routers.supabase.entrypoints=websecure
+      - traefik.http.routers.supabase.tls=true
+      - traefik.http.services.supabase.loadbalancer.server.port=8000
     networks: [app-network]
-    depends_on:
-      supabase-auth:
-        condition: service_started
-      supabase-rest:
-        condition: service_started
-      supabase-realtime:
-        condition: service_started
-      supabase-storage:
-        condition: service_started
-    environment:
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      KONG_DATABASE: off
-      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
-      KONG_DNS_ORDER: LAST,SRV,A,CNAME
-      KONG_PLUGINS: request-transformer,cors
-      KONG_LOG_LEVEL: notice
-      JWT_SECRET: ${JWT_SECRET}
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      SUPABASE_AUTH_URL: http://supabase-auth:9999
-      SUPABASE_REST_URL: http://supabase-rest:3000
-      SUPABASE_REALTIME_URL: http://supabase-realtime:4000/socket
-      SUPABASE_STORAGE_URL: http://supabase-storage:5000
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./revan/supabase/kong.yml:/home/kong/kong.yml:ro
 
   supabase-studio:
-    image: supabase/studio:2025.08.18-sha-c153df2
-    container_name: supabase-studio
-    restart: unless-stopped
-    profiles: ["backend","full"]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.supabase-studio.rule=Host(`studio.127.0.0.1.nip.io`)
+      - traefik.http.routers.supabase-studio.entrypoints=websecure
+      - traefik.http.routers.supabase-studio.tls=true
+      - traefik.http.services.supabase-studio.loadbalancer.server.port=3000
     networks: [app-network]
-    depends_on:
-      supabase-kong:
-        condition: service_started
-    environment:
-      # Server-side (inside Docker)
-      SUPABASE_URL: http://supabase-kong:8000
-      STUDIO_PG_META_URL: http://supabase-meta:8080
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      # Client-side (browser) should call public host through Traefik
-      NEXT_PUBLIC_SUPABASE_URL: https://supabase.127.0.0.1.nip.io
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
-    healthcheck:
-      test: ["CMD", "true"]
-      interval: 10s
-      timeout: 3s
-      retries: 1
-      start_period: 5s
 
-###########################################################################
-# Archon Server 
-###########################################################################
-  archon-server:
-    depends_on:
-      db-init-supabase: { condition: service_completed_successfully }
-      supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
-    env_file:
-      - ./.env
-    # DO NOT set `command:` here — keep the base compose's uvicorn command
-
-###########################################################################
-# LiteLLM (DB bootstrap → migrations → proxy/UI)
-###########################################################################
-#Runs Prisma migrations (one-shot, exits when done)
+  ###########################################################################
+  # LiteLLM (self-hosted)
+  ###########################################################################
   litellm-migrate:
-    image: ghcr.io/berriai/litellm-database:main-stable
-    restart: "no"
-    profiles: ["backend","full"]
+    labels: [ "traefik.enable=false" ]
     networks: [app-network]
-    depends_on:
-      supabase-db:
-        condition: service_healthy
-      db-init-litellm:
-        condition: service_completed_successfully
-    environment:
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/litellm"
 
-  # LiteLLM proxy/UI (long-running, behind Traefik)
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
-    container_name: litellm
-    profiles: ["backend","full"]
-    networks: [app-network]
-    depends_on:
-      supabase-db:
-        condition: service_healthy
-      db-init-litellm:
-        condition: service_completed_successfully
-      litellm-migrate:
-        condition: service_started
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}
-      UI_PASSWORD: ${LITELLM_UI_PASSWORD:-change-me}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      STORAGE_BACKEND: file
-    volumes:
-      - ./revan/litellm.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--detailed_debug", "--host", "0.0.0.0", "--port", "4000"]
+    labels:
+      - traefik.enable=true
+      # Router rule: match llm.127.0.0.1.nip.io on HTTPS
+      - traefik.http.routers.litellm.rule=Host(`llm.127.0.0.1.nip.io`)
+      - traefik.http.routers.litellm.entrypoints=websecure
+      - traefik.http.routers.litellm.tls=true
+      # Attach security headers and compression middlewares
+      - traefik.http.routers.litellm.middlewares=secure-headers,compress
+      # Define security headers middleware (HSTS, XSS, etc.)
+      - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.secure-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.secure-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.secure-headers.headers.contentTypeNosniff=true
+      # **Define the compress middleware** (previously missing)
+      - traefik.http.middlewares.compress.compress=true
+      # (Optional) Middleware to redirect "/" to "/ui" for convenience
+      - traefik.http.middlewares.litellm-redirect.redirectregex.regex=^/$
+      - traefik.http.middlewares.litellm-redirect.redirectregex.replacement=/ui
+      - traefik.http.middlewares.litellm-redirect.redirectregex.permanent=true
+      # Attach redirect middleware as well (now 3 middlewares total)
+      - traefik.http.routers.litellm.middlewares=secure-headers,compress,litellm-redirect
+      # Service definition: target port 4000 in the container
+      - traefik.http.services.litellm.loadbalancer.server.port=4000
 
-volumes:
-  supabase_db:
-  supabase_storage:
+###########################################################################
+# Metroplex Specific Apps 
+###########################################################################
+  agentscope:
+    labels:                     # Traefik (adjust network + host to your setup)
+      - "traefik.enable=true"
+      - "traefik.http.routers.agentscope.rule=Host(`agentscope.localhost`)"
+      - "traefik.http.routers.agentscope.entrypoints=websecure"
+      - "traefik.http.routers.agentscope.tls=true"
+      - "traefik.http.services.agentscope.loadbalancer.server.port=8080"
+    networks: [app-network]
+  
+  coderag:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.coderag.rule=Host(`coderag.localhost`)"
+      - "traefik.http.routers.coderag.entrypoints=websecure"
+      - "traefik.http.routers.coderag.tls=true"
+      - "traefik.http.services.coderag.loadbalancer.server.port=8080"
+    networks: [app-network]
+  
+  qdrant:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
 
 networks:
   app-network:
