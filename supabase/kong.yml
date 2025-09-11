@@ -1,0 +1,49 @@
+# /supabase/kong.yml
+_format_version: "2.1"
+_transform: true
+
+services:
+  - name: auth
+    url: http://supabase-auth:9999
+    routes:
+      - name: auth_v1
+        paths: ["/auth/v1"]
+        strip_path: true
+        methods: ["GET","POST","OPTIONS"]
+
+  - name: rest
+    url: http://supabase-rest:3000
+    routes:
+      - name: rest_v1
+        paths: ["/rest/v1"]
+        strip_path: true
+        methods: ["GET","POST","PATCH","PUT","DELETE","OPTIONS"]
+
+  - name: storage
+    url: http://supabase-storage:5000
+    routes:
+      - name: storage_v1
+        paths: ["/storage/v1"]
+        strip_path: true
+        methods: ["GET","POST","PUT","DELETE","OPTIONS"]
+
+  - name: realtime
+    # WS is handled over HTTP(S); point to /socket and strip the prefix
+    url: http://supabase-realtime:4000/socket
+    routes:
+      - name: realtime_v1
+        paths: ["/realtime/v1"]
+        strip_path: true
+        protocols: ["http","https"]  # <-- no ws/wss on Kong 2.8
+
+# Global CORS (dev-friendly). Replace "*" with specific origins if you want.
+plugins:
+  - name: cors
+    config:
+      origins: ["*"]
+      methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"]
+      headers: ["Authorization","apikey","Content-Type","X-Client-Info","Range","Prefer"]
+      exposed_headers: ["Content-Range","Content-Type","Date","Content-Profile","Content-Encoding"]
+      credentials: true
+      max_age: 3600
+      preflight_continue: false

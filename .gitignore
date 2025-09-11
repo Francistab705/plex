@@ -1,0 +1,4 @@
+traefik/certs/rootCA.pem
+traefik/certs/local-key.pem
+traefik/certs/local-cert.pem
+traefik/env.d/ca.env

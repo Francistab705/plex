@@ -1,0 +1,199 @@
+# compose.traefik.yml
+#
+# Layer this on top of your existing base compose.yml that defines:
+#   - archon-server, archon-mcp, archon-agents, archon-frontend
+#
+# This override adds:
+#   - Traefik (edge proxy, 80/443)
+#   - Self-hosted Supabase: db, auth, rest, realtime, storage, kong, studio
+#   - LiteLLM (OpenAI-compatible gateway)
+#
+# Hostnames provided by Traefik:
+#   https://traefik.localhost
+#   https://archon.localhost
+#   https://archon-api.localhost
+#   https://supabase.localhost
+#   https://studio.localhost
+#   https://llm.localhost
+
+services:
+  ###########################################################################
+  # Traefik (Edge proxy)
+  ###########################################################################
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    profiles: ["backend", "frontend", "full"]
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --serversTransport.insecureSkipVerify=true
+      # Global HTTP -> HTTPS
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --log.level=DEBUG 
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [app-network]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./revan/traefik/certs.yaml:/etc/traefik/dynamic/certs.yaml:ro
+      - ./revan/certs:/etc/traefik/certs:ro
+    labels:
+      - traefik.enable=true
+      # Dashboard at https://traefik.localhost (basic auth from TRAEFIK_DASHBOARD_USERS)
+      - traefik.http.routers.traefik.rule=Host(`traefik.127.0.0.1.nip.io`)
+      - traefik.http.routers.traefik.entrypoints=websecure
+      - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}
+      - traefik.http.routers.traefik.middlewares=traefik-auth
+
+  ###########################################################################
+  # Archon (fronted by Traefik)
+  ###########################################################################
+  archon-frontend:
+    # Make the browser call the public hostname (Traefik) instead of localhost:8181
+    environment:
+      VITE_API_URL: https://archon-api.127.0.0.1.nip.io
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.archon-ui.rule=Host(`archon.127.0.0.1.nip.io`)
+      - traefik.http.routers.archon-ui.entrypoints=websecure
+      - traefik.http.routers.archon-ui.tls=true
+      - traefik.http.services.archon-ui.loadbalancer.server.port=3737
+    networks: [app-network]
+
+  archon-server:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.archon-api.rule=Host(`archon-api.127.0.0.1.nip.io`)
+      - traefik.http.routers.archon-api.entrypoints=websecure
+      - traefik.http.routers.archon-api.tls=true
+      - traefik.http.services.archon-api.loadbalancer.server.port=${ARCHON_SERVER_PORT:-8181}
+    networks: [app-network]
+
+
+  # Keep MCP & Agents internal
+  archon-mcp:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  archon-agents:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  ###########################################################################
+  # Supabase (self-hosted)
+  ###########################################################################
+  supabase-db:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  supabase-auth:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  supabase-rest:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  supabase-meta:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+
+  supabase-realtime:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  supabase-storage:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  supabase-kong:
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.supabase.rule=Host(`supabase.127.0.0.1.nip.io`)
+      - traefik.http.routers.supabase.entrypoints=websecure
+      - traefik.http.routers.supabase.tls=true
+      - traefik.http.services.supabase.loadbalancer.server.port=8000
+    networks: [app-network]
+
+  supabase-studio:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.supabase-studio.rule=Host(`studio.127.0.0.1.nip.io`)
+      - traefik.http.routers.supabase-studio.entrypoints=websecure
+      - traefik.http.routers.supabase-studio.tls=true
+      - traefik.http.services.supabase-studio.loadbalancer.server.port=3000
+    networks: [app-network]
+
+  ###########################################################################
+  # LiteLLM (self-hosted)
+  ###########################################################################
+  litellm-migrate:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+  litellm:
+    labels:
+      - traefik.enable=true
+      # Router rule: match llm.127.0.0.1.nip.io on HTTPS
+      - traefik.http.routers.litellm.rule=Host(`llm.127.0.0.1.nip.io`)
+      - traefik.http.routers.litellm.entrypoints=websecure
+      - traefik.http.routers.litellm.tls=true
+      # Attach security headers and compression middlewares
+      - traefik.http.routers.litellm.middlewares=secure-headers,compress
+      # Define security headers middleware (HSTS, XSS, etc.)
+      - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.secure-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.secure-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.secure-headers.headers.contentTypeNosniff=true
+      # **Define the compress middleware** (previously missing)
+      - traefik.http.middlewares.compress.compress=true
+      # (Optional) Middleware to redirect "/" to "/ui" for convenience
+      - traefik.http.middlewares.litellm-redirect.redirectregex.regex=^/$
+      - traefik.http.middlewares.litellm-redirect.redirectregex.replacement=/ui
+      - traefik.http.middlewares.litellm-redirect.redirectregex.permanent=true
+      # Attach redirect middleware as well (now 3 middlewares total)
+      - traefik.http.routers.litellm.middlewares=secure-headers,compress,litellm-redirect
+      # Service definition: target port 4000 in the container
+      - traefik.http.services.litellm.loadbalancer.server.port=4000
+
+###########################################################################
+# Metroplex Specific Apps 
+###########################################################################
+  agentscope:
+    labels:                     # Traefik (adjust network + host to your setup)
+      - "traefik.enable=true"
+      - "traefik.http.routers.agentscope.rule=Host(`agentscope.localhost`)"
+      - "traefik.http.routers.agentscope.entrypoints=websecure"
+      - "traefik.http.routers.agentscope.tls=true"
+      - "traefik.http.services.agentscope.loadbalancer.server.port=8080"
+    networks: [app-network]
+  
+  coderag:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.coderag.rule=Host(`coderag.localhost`)"
+      - "traefik.http.routers.coderag.entrypoints=websecure"
+      - "traefik.http.routers.coderag.tls=true"
+      - "traefik.http.services.coderag.loadbalancer.server.port=8080"
+    networks: [app-network]
+  
+  qdrant:
+    labels: [ "traefik.enable=false" ]
+    networks: [app-network]
+
+networks:
+  app-network:
+    driver: bridge
