@@ -59,6 +59,7 @@ services:
   # Archon (fronted by Traefik)
   ###########################################################################
   archon-frontend:
+    profiles: ["archon","unsecure","full"]
     # Make the browser call the public hostname (Traefik) instead of localhost:8181
     environment:
       VITE_API_URL: https://archon-api.127.0.0.1.nip.io
@@ -71,6 +72,7 @@ services:
     networks: [app-network]
 
   archon-server:
+    profiles: ["backend","archon","unsecure","full"]
     labels:
       - traefik.enable=true
       - traefik.docker.network=app-network
@@ -83,10 +85,12 @@ services:
 
   # Keep MCP & Agents internal
   archon-mcp:
+    profiles: ["archon","unsecure","full"]
     labels: [ "traefik.enable=false" ]
     networks: [app-network]
 
   archon-agents:
+    profiles: ["archon","unsecure","full"]
     labels: [ "traefik.enable=false" ]
     networks: [app-network]
 
@@ -173,6 +177,7 @@ services:
 # Metroplex Specific Apps 
 ###########################################################################
   agentscope:
+    profiles: ["unsecure","full"]
     labels:                     # Traefik (adjust network + host to your setup)
       - "traefik.enable=true"
       - "traefik.http.routers.agentscope.rule=Host(`agentscope.localhost`)"
@@ -182,6 +187,7 @@ services:
     networks: [app-network]
   
   coderag:
+    profiles: ["unsecure","full"]
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.coderag.rule=Host(`coderag.localhost`)"
@@ -191,6 +197,7 @@ services:
     networks: [app-network]
   
   qdrant:
+    profiles: ["unsecure","full"]
     labels: [ "traefik.enable=false" ]
     networks: [app-network]
 

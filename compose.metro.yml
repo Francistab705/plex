@@ -7,7 +7,7 @@ services:
     image: ghcr.io/supabase/postgres:15.8.1.131
     container_name: supabase-db
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","litellm","unsecure","full"]
     networks: [app-network]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -31,7 +31,7 @@ services:
   db-init-supabase:
     image: postgres:15-alpine
     restart: "no"
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db:
@@ -125,7 +125,7 @@ services:
   db-init-litellm:
     image: postgres:15-alpine
     restart: "no"
-    profiles: ["backend","full"]
+    profiles: ["backend","litellm","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db:
@@ -173,7 +173,7 @@ services:
     image: supabase/gotrue:v2.178.0
     container_name: supabase-auth
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db: { condition: service_healthy }
@@ -204,7 +204,7 @@ services:
     image: postgrest/postgrest:latest
     container_name: supabase-rest
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db: { condition: service_healthy }
@@ -226,7 +226,7 @@ services:
     image: supabase/postgres-meta:v0.78.0
     container_name: supabase-meta
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db: { condition: service_healthy }
@@ -248,7 +248,7 @@ services:
     image: supabase/realtime:v2.43.0
     container_name: supabase-realtime
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db: { condition: service_healthy }
@@ -281,7 +281,7 @@ services:
     image: supabase/storage-api:v1.26.3
     container_name: supabase-storage
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db: { condition: service_healthy }
@@ -309,7 +309,7 @@ services:
     image: ghcr.io/supabase/kong:2.8.1
     container_name: supabase-kong
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-auth:
@@ -343,7 +343,7 @@ services:
     image: supabase/studio:2025.08.18-sha-c153df2
     container_name: supabase-studio
     restart: unless-stopped
-    profiles: ["backend","full"]
+    profiles: ["supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-kong:
@@ -368,13 +368,13 @@ services:
 # Archon Server 
 ###########################################################################
   archon-server:
+    profiles: ["backend","archon","unsecure","full"]
     depends_on:
       db-init-supabase: { condition: service_completed_successfully }
       supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
     env_file:
       - ./.env
-    # DO NOT set `command:` here — keep the base compose's uvicorn command
-
+      
 ###########################################################################
 # LiteLLM (DB bootstrap → migrations → proxy/UI)
 ###########################################################################
@@ -382,7 +382,7 @@ services:
   litellm-migrate:
     image: ghcr.io/berriai/litellm-database:main-stable
     restart: "no"
-    profiles: ["backend","full"]
+    profiles: ["backend","litellm","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db:
@@ -396,7 +396,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: litellm
-    profiles: ["backend","full"]
+    profiles: ["backend","litellm","unsecure","full"]
     networks: [app-network]
     depends_on:
       supabase-db:
