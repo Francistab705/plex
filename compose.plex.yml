@@ -94,6 +94,16 @@ services:
     labels: [ "traefik.enable=false" ]
     networks: [app-network]
 
+  docs:
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.archon-docs.rule=Host(`docs.localhost`)
+      - traefik.http.routers.archon-docs.entrypoints=websecure
+      - traefik.http.routers.archon-docs.middlewares=docs-auth
+      - traefik.http.middlewares.docs-auth.basicauth.users=admin:$$apr1$$rN...hashed...
+      - traefik.http.services.archon-api.loadbalancer.server.port=${ARCHON_SERVER_PORT:-8181}
+
+
   ###########################################################################
   # Supabase (self-hosted)
   ###########################################################################
