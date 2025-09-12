@@ -211,6 +211,99 @@ services:
     labels: [ "traefik.enable=false" ]
     networks: [app-network]
 
+###########################################################################
+#Libre chat 
+###########################################################################
+  api:
+    networks: [app-network]
+    ports: []  # disable host bind 3080
+    # stop mounting random .env from another repo if present in that compose:
+    volumes: []  # optional: if the repo file mounted /app/.env, nuke it here
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.librechat.rule=Host(`librechat.127.0.0.1.nip.io`)
+      - traefik.http.routers.librechat.entrypoints=websecure
+      - traefik.http.routers.librechat.tls=true
+      - traefik.http.services.librechat.loadbalancer.server.port=3080
+
+  # LibreChat RAG API
+  rag_api:
+    networks: [app-network]
+    ports: []  # disable host bind
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.rag.rule=Host(`rag.127.0.0.1.nip.io`)
+      - traefik.http.routers.rag.entrypoints=websecure
+      - traefik.http.routers.rag.tls=true
+      - traefik.http.services.rag.loadbalancer.server.port=8000
+    environment:
+      SUPABASE_URL: http://supabase-kong:8000  # replace host.docker.internal
+
+  # AgentScope (arlington)
+  arlington:
+    networks: [app-network]
+    ports: []  # disable 8088
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.agentscope.rule=Host(`agentscope.127.0.0.1.nip.io`)
+      - traefik.http.routers.agentscope.entrypoints=websecure
+      - traefik.http.routers.agentscope.tls=true
+      - traefik.http.services.agentscope.loadbalancer.server.port=8080
+
+  # Cipher API
+  cipher-api:
+    networks: [app-network]
+    ports: []  # disable 3000
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.cipher.rule=Host(`cipher.127.0.0.1.nip.io`)
+      - traefik.http.routers.cipher.entrypoints=websecure
+      - traefik.http.routers.cipher.tls=true
+      - traefik.http.services.cipher.loadbalancer.server.port=3000
+
+  # OakCliff (olivetin)
+  olivetin:
+    networks: [app-network]
+    ports: []  # disable 1337
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.oakcliff.rule=Host(`oakcliff.127.0.0.1.nip.io`)
+      - traefik.http.routers.oakcliff.entrypoints=websecure
+      - traefik.http.routers.oakcliff.tls=true
+      - traefik.http.services.oakcliff.loadbalancer.server.port=1337
+
+  # Desto dashboard
+  dashboard:
+    networks: [app-network]
+    ports: []  # disable 8809
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=metroplex_app-network
+      - traefik.http.routers.desto.rule=Host(`desto.127.0.0.1.nip.io`)
+      - traefik.http.routers.desto.entrypoints=websecure
+      - traefik.http.routers.desto.tls=true
+      - traefik.http.services.desto.loadbalancer.server.port=8809
+
+  # Internal-only infra (attach to app-network, no public ports)
+  mongodb:
+    networks: [app-network]
+    ports: []
+  meilisearch:
+    networks: [app-network]
+    ports: []
+  redis:
+    networks: [app-network]
+    ports: []
+  vectordb:
+    networks: [app-network]
+    ports: []
+
+
 networks:
   app-network:
     driver: bridge
