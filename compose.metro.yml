@@ -16,7 +16,7 @@ services:
       PGVECTOR_ENABLED: "true"
     volumes:
       - supabase_db:/var/lib/postgresql/data
-      - ./revan/supabase/00-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
+      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/supabase/00-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
     healthcheck:
       test: ["CMD-SHELL","pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} || exit 1"]
       interval: 10s
@@ -337,7 +337,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./revan/supabase/kong.yml:/home/kong/kong.yml:ro
+      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/supabase/kong.yml:/home/kong/kong.yml:ro
 
   supabase-studio:
     image: supabase/studio:2025.08.18-sha-c153df2
@@ -372,8 +372,7 @@ services:
     depends_on:
       db-init-supabase: { condition: service_completed_successfully }
       supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
-    env_file:
-      - ./.env
+    env_file: []
       
 ###########################################################################
 # LiteLLM (DB bootstrap → migrations → proxy/UI)
@@ -414,7 +413,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STORAGE_BACKEND: file
     volumes:
-      - ./revan/litellm.yaml:/app/config.yaml:ro
+      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/litellm/litellm.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--detailed_debug", "--host", "0.0.0.0", "--port", "4000"]
 
 volumes:
