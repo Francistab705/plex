@@ -20,15 +20,44 @@
 #     image: ghcr.io/danny-avila/librechat:latest
 
 # ---------------------------------------------------
+# docker-compose.override.yml
+services:
+  api:
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+    volumes:
+      # Use your .env.plex inside the container as /app/.env
+      - type: bind
+        source: /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+        target: /app/.env
+      # Persist app assets/logs under your absolute volumes path
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/images:/app/client/public/images
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/uploads:/app/uploads
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/logs:/app/api/logs
 
-# services:
+  mongodb:
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+    volumes:
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/mongodb:/data/db
 
-# # USE LIBRECHAT CONFIG FILE
-#   api:
-#     volumes:
-#     - type: bind
-#       source: ./librechat.yaml
-#       target: /app/librechat.yaml
+  meilisearch:
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+    volumes:
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/meili_data_v1.12:/meili_data
+
+  vectordb:
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+    volumes:
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/postgres:/var/lib/postgresql/data
+
+  rag_api:
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+
+
 
 # # LOCAL BUILD
 #   api:
