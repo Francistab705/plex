@@ -1,0 +1,36 @@
+services:
+  cipher-ui:
+    platform: linux/amd64
+    build:
+      context: /Users/maf001h/Documents/personal_projects/coding/programs/Cipher
+      args:
+        BUILD_UI: "true"
+    image: cipher-ui
+    networks: [app-network]
+    ports: ["3000:3000"]  # Traefik will route
+    env_file:
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
+    environment:
+      - CIPHER_PG_URL=postgres://${CIPHER_DB_USER:-cipheruser}:${CIPHER_DB_PASSWORD:-cipherpass}@supabase-db:5432/${POSTGRES_DB:-postgres}
+      # Optional (fixes "Invalid LLM configuration"):
+      # - OPENAI_API_KEY=sk-...
+    command: ['sh','-c','node dist/src/app/index.cjs --mode ui --host 0.0.0.0']
+    volumes:
+      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/Cipher/memAgent:/app/memAgent:ro
+      - /Users/maf001h/Documents/personal_projects/coding/volumes/cipher:/app/.cipher
+    restart: unless-stopped
+    depends_on:
+      supabase-db: { condition: service_healthy }
+      db-init-supabase: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          node -e "const u=a=>fetch(a).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));
+          u('http://localhost:3001/health').catch(()=>u('http://localhost:3001/api/health'))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+volumes:
+  cipher-data:

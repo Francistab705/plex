@@ -36,9 +36,15 @@ services:
     depends_on:
       supabase-db: { condition: service_healthy }
     environment:
+      # Admin creds you already use to run bootstrap SQL
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
+
+      # NEW: app role + schema for Cipher (override in your .env if you like)
+      CIPHER_DB_USER: ${CIPHER_DB_USER:-cipheruser}
+      CIPHER_DB_PASSWORD: ${CIPHER_DB_PASSWORD:-cipherpass}
+      CIPHER_DB_SCHEMA: ${CIPHER_DB_SCHEMA:-cipher}
     volumes:
       - ./migration/complete_setup.sql:/bootstrap/complete_setup.sql:ro
     entrypoint: ["/bin/sh","-lc"]
@@ -48,28 +54,23 @@ services:
       until pg_isready -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do sleep 1; done
       echo "✅ Postgres is ready"
 
+      # --- Core Supabase/Archon bits (unchanged) ---
       psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-      -- 0) Required extensions for Archon (safe to re-run)
       create extension if not exists vector;
       create extension if not exists "uuid-ossp";
       create extension if not exists pgcrypto;
 
-      -- 1) Make sure the migrations tables exist
       create schema if not exists auth;
       create table if not exists auth.schema_migrations (version text primary key);
       create table if not exists public.schema_migrations (version text primary key);
 
-      -- 2) Skip markers for the two legacy backfills (idempotent)
       insert into auth.schema_migrations values ('20221125140132') on conflict do nothing;
       insert into auth.schema_migrations values ('20221208132122') on conflict do nothing;
       insert into public.schema_migrations values ('20221125140132') on conflict do nothing;
       insert into public.schema_migrations values ('20221208132122') on conflict do nothing;
 
-      -- 3) Pin the role GoTrue actually uses (from your logs) to auth-first
       alter role supabase_admin set search_path = auth, public;
 
-      -- 4) Safety net: make public.schema_migrations a shim into auth.schema_migrations
-      --    (so even if something hits 'public', it still records in 'auth')
       do $$
       begin
         if exists (
@@ -89,7 +90,7 @@ services:
         do instead insert into auth.schema_migrations values (new.version);
       SQL
 
-      # 5) Realtime migration table guard (unchanged from your original)
+      # --- Realtime migration table guard (unchanged) ---
       psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
       do $$
       declare
@@ -133,7 +134,35 @@ services:
       end $$;
       SQL
 
-      # 6) Load your Archon DB objects exactly once
+      # --- NEW: Cipher app role + schema (idempotent) ---
+      psql -v ON_ERROR_STOP=1 \
+           -v app_user="$CIPHER_DB_USER" \
+           -v app_pass="$CIPHER_DB_PASSWORD" \
+           -v app_schema="$CIPHER_DB_SCHEMA" \
+           -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+      do $$
+      begin
+        if not exists (select 1 from pg_roles where rolname = :'app_user') then
+          execute format('create role %I login password %L', :'app_user', :'app_pass');
+        end if;
+      end
+      $$;
+
+      create schema if not exists :"app_schema" authorization :"app_user";
+
+      -- Ensure Cipher writes to its own schema by default
+      alter role :"app_user" set search_path = :"app_schema", public, extensions;
+
+      -- Let the app use public + extensions (for uuid, vector, etc.)
+      grant usage on schema public, extensions to :"app_user";
+
+      -- Sensible defaults for future objects in the cipher schema
+      alter default privileges in schema :"app_schema" grant all on tables    to :"app_user";
+      alter default privileges in schema :"app_schema" grant all on sequences to :"app_user";
+      alter default privileges in schema :"app_schema" grant all on functions to :"app_user";
+      SQL
+
+      # --- Archon migration gate (unchanged) ---
       if [ "$(psql -At -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select to_regclass('public.archon_settings') is not null")" = "t" ]; then
         echo "ℹ️ 'public.archon_settings' already present — skipping complete_setup.sql"
       else
@@ -141,7 +170,7 @@ services:
         psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /bootstrap/complete_setup.sql
       fi
 
-      # 7) Ask PostgREST (if you use it) to refresh its schema cache
+      # Ask PostgREST (if present) to refresh its schema cache
       psql -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "NOTIFY pgrst, 'reload schema';"
 
       echo "✅ db-init-supabase guard done"
@@ -397,6 +426,9 @@ services:
       db-init-supabase: { condition: service_completed_successfully }
       supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
     env_file: []
+  
+  cipher-ui:
+    profiles: ["backend","cipher","unsecure","full"]
 
 ###########################################################################
 # Librechat 

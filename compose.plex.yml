@@ -239,17 +239,18 @@ services:
 #     networks: [app-network]
 
 
-#   # Cipher API
-#   cipher-api:
-#     networks: [app-network]
-#     ports: []  # disable 3000
-#     labels:
-#       - traefik.enable=true
-#       - traefik.docker.network=app-network
-#       - traefik.http.routers.cipher.rule=Host(`cipher.127.0.0.1.nip.io`)
-#       - traefik.http.routers.cipher.entrypoints=websecure
-#       - traefik.http.routers.cipher.tls=true
-#       - traefik.http.services.cipher.loadbalancer.server.port=3000
+  # Cipher API
+  cipher-ui:
+    networks: [app-network]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.cipher.rule=Host(`cipher.127.0.0.1.nip.io`)
+      - traefik.http.routers.cipher.entrypoints=websecure
+      - traefik.http.routers.cipher.tls=true
+      - traefik.http.services.cipher.loadbalancer.server.port=3000
+    
+
 
   # OakCliff (olivetin)
   olivetin:
