@@ -23,40 +23,43 @@
 # docker-compose.override.yml
 services:
   api:
+    container_name: librechat-api
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
     volumes:
-      # Use your .env.plex inside the container as /app/.env
       - type: bind
         source: /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
         target: /app/.env
-      # Persist app assets/logs under your absolute volumes path
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/images:/app/client/public/images
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/uploads:/app/uploads
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/logs:/app/api/logs
 
   mongodb:
+    container_name: librechat-mongodb
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
     volumes:
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/mongodb:/data/db
 
   meilisearch:
+    container_name: librechat-meilisearch
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
     volumes:
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/meili_data_v1.12:/meili_data
 
   vectordb:
+    container_name: librechat-vectordb
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
     volumes:
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/postgres:/var/lib/postgresql/data
 
   rag_api:
+    container_name: librechat-rag-api
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
-
+      
 
 
 # # LOCAL BUILD
