@@ -49,6 +49,10 @@ services:
       - /Users/maf001h/Documents/personal_projects/coding/volumes/librechat/meili_data_v1.12:/meili_data
 
   vectordb:
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     container_name: librechat-vectordb
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex

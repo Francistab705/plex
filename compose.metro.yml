@@ -421,24 +421,9 @@ services:
 # Archon Server 
 ###########################################################################
   archon-server:
-    profiles: ["backend","archon","unsecure","full"]
     depends_on:
       db-init-supabase: { condition: service_completed_successfully }
       supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
-    env_file: []
-  
-  cipher-ui:
-    profiles: ["backend","cipher","unsecure","full"]
-
-###########################################################################
-# Librechat 
-###########################################################################
-  vectordb:
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
       
 ###########################################################################
 # LiteLLM (DB bootstrap → migrations → proxy/UI)

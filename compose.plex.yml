@@ -73,6 +73,7 @@ services:
 
   archon-server:
     profiles: ["backend","archon","unsecure","full"]
+    env_file: []
     labels:
       - traefik.enable=true
       - traefik.docker.network=app-network
@@ -81,7 +82,6 @@ services:
       - traefik.http.routers.archon-api.tls=true
       - traefik.http.services.archon-api.loadbalancer.server.port=${ARCHON_SERVER_PORT:-8181}
     networks: [app-network]
-
 
   # Keep MCP & Agents internal
   archon-mcp:
@@ -222,8 +222,12 @@ services:
     networks: [app-network]
     ports: []
 
-#   # AgentScope (arlington)
+###########################################################################
+# AgentScope (arlington)
+###########################################################################
+
 #   arlington:
+#     container_name: agentscope
 #     networks: [app-network]
 #     ports: []  # disable 8088
 #     labels:
@@ -238,9 +242,11 @@ services:
 #     labels: [ "traefik.enable=false" ]
 #     networks: [app-network]
 
-
-  # Cipher API
+###########################################################################
+#Cipher
+###########################################################################
   cipher-ui:
+    profiles: ["backend","cipher","unsecure","full"]
     networks: [app-network]
     labels:
       - traefik.enable=true
@@ -249,10 +255,10 @@ services:
       - traefik.http.routers.cipher.entrypoints=websecure
       - traefik.http.routers.cipher.tls=true
       - traefik.http.services.cipher.loadbalancer.server.port=3000
-    
-
-
+  
+###########################################################################
   # OakCliff (olivetin)
+###########################################################################
   olivetin:
     image: ghcr.io/olivetin/olivetin:2025.7.29
     container_name: olivetin
@@ -272,7 +278,10 @@ services:
       - traefik.http.routers.oakcliff.tls=true
       - traefik.http.services.oakcliff.loadbalancer.server.port=1337
 
-  # Desto dashboard
+###########################################################################
+  # DeSoto (Desto)
+###########################################################################
+
   dashboard:
     networks: [app-network]
     ports: []  # disable 8809
