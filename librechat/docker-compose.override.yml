@@ -63,7 +63,30 @@ services:
     container_name: librechat-rag-api
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
-      
+
+  mcp-fs:
+    image: supercorp/supergateway:latest
+    container_name: mcp-fs
+    # Wrap the stdio-only filesystem server and expose it as SSE on :8000
+    command: >
+      supergateway
+      --stdio "npx -y @modelcontextprotocol/server-filesystem /work"
+      --port 8001
+      --baseUrl http://0.0.0.0:8001
+      --ssePath /sse
+      --messagePath /message
+      --healthEndpoint /healthz
+    volumes:
+      - /Users/maf001h/Documents:/work:ro   # choose the folder you want to expose
+    ports:
+      - "8001:8001"     # optional if LibreChat is on same Docker network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks: [app-network]       # put it on the same network as LibreChat
 
 
 # # LOCAL BUILD
