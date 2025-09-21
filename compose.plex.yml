@@ -184,43 +184,18 @@ services:
       - traefik.http.services.litellm.loadbalancer.server.port=4000
 
 ###########################################################################
-#Libre chat 
+#VS Codium
 ###########################################################################
-  api:
-    networks: [app-network]
-    ports: []  # disable host bind 3080
-    # stop mounting random .env from another repo if present in that compose:
-    volumes: []  # optional: if the repo file mounted /app/.env, nuke it here
+  vscodium:
     labels:
-      - traefik.enable=true
-      - traefik.docker.network=app-network
-      - traefik.http.routers.librechat.rule=Host(`librechat.127.0.0.1.nip.io`)
-      - traefik.http.routers.librechat.entrypoints=websecure
-      - traefik.http.routers.librechat.tls=true
-      - traefik.http.services.librechat.loadbalancer.server.port=3080
-
-  # LibreChat RAG API
-  rag_api:
+      - "traefik.enable=true"
+      - "traefik.docker.network=app-network"
+      - "traefik.http.routers.vscodium.rule=Host(`${VSCODIUM_HOST:-code.127.0.0.1.nip.io}`)"
+      - "traefik.http.routers.vscodium.entrypoints=websecure"
+      - "traefik.http.routers.vscodium.tls=true"
+      # Send Traefik to the container's HTTP port; TLS is terminated at Traefik
+      - "traefik.http.services.vscodium.loadbalancer.server.port=3000"
     networks: [app-network]
-    ports: []  # disable host bind
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=app-network
-      - traefik.http.routers.rag.rule=Host(`librechat_rag.127.0.0.1.nip.io`)
-      - traefik.http.routers.rag.entrypoints=websecure
-      - traefik.http.routers.rag.tls=true
-      - traefik.http.services.rag.loadbalancer.server.port=3081
-    environment:
-      SUPABASE_URL: http://supabase-kong:8000  # replace host.docker.internal
-  mongodb:
-    networks: [app-network]
-    ports: []
-  meilisearch:
-    networks: [app-network]
-    ports: []
-  vectordb:
-    networks: [app-network]
-    ports: []
 
 ###########################################################################
 # AgentScope (arlington)

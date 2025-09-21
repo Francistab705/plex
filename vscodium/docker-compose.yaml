@@ -1,0 +1,19 @@
+services:
+  vscodium:
+    image: lscr.io/linuxserver/vscodium:latest
+    container_name: vscodium
+    profiles: ["frontend","full"]
+    restart: unless-stopped
+    shm_size: "1gb"
+    cap_add:
+      - IPC_LOCK
+    security_opt:
+      - seccomp:unconfined    # optional, recommended by LSIO docs
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-America/Chicago}
+      # Keep default internal ports (docs: 3000 http / 3001 https)
+    volumes:
+      - ${VSCODIUM_CONFIG_PATH:-/Users/maf001h/Documents/personal_projects/coding/volumes/vscodium}:/config
+      - ${WORKSPACE_DIR:-/Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/workspace}:/workspace
