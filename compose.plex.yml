@@ -86,7 +86,13 @@ services:
   # Keep MCP & Agents internal
   archon-mcp:
     profiles: ["archon","unsecure","full"]
-    labels: [ "traefik.enable=false" ]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=app-network
+      - traefik.http.routers.archon-mcp.rule=Host(`archon-mcp.127.0.0.1.nip.io`)
+      - traefik.http.routers.archon-mcp.entrypoints=websecure
+      - traefik.http.routers.archon-mcp.tls=true
+      - traefik.http.services.archon-mcp.loadbalancer.server.port=8051
     networks: [app-network]
 
   archon-agents:
@@ -197,25 +203,6 @@ services:
       - "traefik.http.services.vscodium.loadbalancer.server.port=3000"
     networks: [app-network]
 
-###########################################################################
-# AgentScope (arlington)
-###########################################################################
-
-#   arlington:
-#     container_name: agentscope
-#     networks: [app-network]
-#     ports: []  # disable 8088
-#     labels:
-#       - traefik.enable=true
-#       - traefik.docker.network=app-network
-#       - traefik.http.routers.agentscope.rule=Host(`agentscope.127.0.0.1.nip.io`)
-#       - traefik.http.routers.agentscope.entrypoints=websecure
-#       - traefik.http.routers.agentscope.tls=true
-#       - traefik.http.services.agentscope.loadbalancer.server.port=8082
-#   qdrant:
-#     profiles: ["unsecure","full"]
-#     labels: [ "traefik.enable=false" ]
-#     networks: [app-network]
 
 ###########################################################################
 #Cipher
@@ -230,47 +217,6 @@ services:
       - traefik.http.routers.cipher.entrypoints=websecure
       - traefik.http.routers.cipher.tls=true
       - traefik.http.services.cipher.loadbalancer.server.port=3000
-  
-###########################################################################
-  # OakCliff (olivetin)
-###########################################################################
-  olivetin:
-    image: ghcr.io/olivetin/olivetin:2025.7.29
-    container_name: olivetin
-    ports: []  # disable 1337
-    volumes:
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/OliveTin:/config:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-    # If you want OliveTin to control Docker:
-    user: root
-    networks: [app-network]
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=app-network
-      - traefik.http.routers.oakcliff.rule=Host(`olivetin.127.0.0.1.nip.io`)
-      - traefik.http.routers.oakcliff.entrypoints=websecure
-      - traefik.http.routers.oakcliff.tls=true
-      - traefik.http.services.oakcliff.loadbalancer.server.port=1337
-
-###########################################################################
-  # DeSoto (Desto)
-###########################################################################
-
-  dashboard:
-    networks: [app-network]
-    ports: []  # disable 8809
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=app-network
-      - traefik.http.routers.desto.rule=Host(`desto.127.0.0.1.nip.io`)
-      - traefik.http.routers.desto.entrypoints=websecure
-      - traefik.http.routers.desto.tls=true
-      - traefik.http.services.desto.loadbalancer.server.port=8809
-  redis:
-    networks: [app-network]
-    ports: []
-
 
 networks:
   app-network:
