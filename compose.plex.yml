@@ -189,35 +189,29 @@ services:
       # Service definition: target port 4000 in the container
       - traefik.http.services.litellm.loadbalancer.server.port=4000
 
-###########################################################################
-#VS Codium
-###########################################################################
-  vscodium:
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=app-network"
-      - "traefik.http.routers.vscodium.rule=Host(`${VSCODIUM_HOST:-code.127.0.0.1.nip.io}`)"
-      - "traefik.http.routers.vscodium.entrypoints=websecure"
-      - "traefik.http.routers.vscodium.tls=true"
-      # Send Traefik to the container's HTTP port; TLS is terminated at Traefik
-      - "traefik.http.services.vscodium.loadbalancer.server.port=3000"
-    networks: [app-network]
 
 
 ###########################################################################
-#Cipher
+# Cipher
 ###########################################################################
-  cipher-ui:
+  cipher:
     profiles: ["backend","cipher","unsecure","full"]
     networks: [app-network]
     labels:
       - traefik.enable=true
       - traefik.docker.network=app-network
-      - traefik.http.routers.cipher.rule=Host(`cipher.127.0.0.1.nip.io`)
-      - traefik.http.routers.cipher.entrypoints=websecure
-      - traefik.http.routers.cipher.tls=true
-      - traefik.http.services.cipher.loadbalancer.server.port=3000
 
+      # --- UI (Next.js on port 3000) ---
+      - traefik.http.routers.cipher-ui.rule=Host(`cipher.127.0.0.1.nip.io`)
+      - traefik.http.routers.cipher-ui.entrypoints=websecure
+      - traefik.http.routers.cipher-ui.tls=true
+      - traefik.http.services.cipher-ui.loadbalancer.server.port=3000
+
+      # --- API / MCP SSE (Node API on port 4000) ---
+      - traefik.http.routers.cipher-mcp.rule=Host(`cipher-mcp.127.0.0.1.nip.io`)
+      - traefik.http.routers.cipher-mcp.entrypoints=websecure
+      - traefik.http.routers.cipher-mcp.tls=true
+      - traefik.http.services.cipher-mcp.loadbalancer.server.port=4000
 networks:
   app-network:
     driver: bridge

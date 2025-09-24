@@ -11,7 +11,7 @@ CERTS_DIR="${CERTS_DIR:-./traefik/certs}"
 mkdir -p "$CERTS_DIR" ./traefik/certs
 
 # Default domains: wildcard for nip.io plus explicit service hostnames
-DOMAINS_DEFAULT="localhost 127.0.0.1 ::1 *.127.0.0.1.nip.io traefik.127.0.0.1.nip.io archon.127.0.0.1.nip.io archon-api.127.0.0.1.nip.io supabase.127.0.0.1.nip.io studio.127.0.0.1.nip.io llm.127.0.0.1.nip.io cipher.127.0.0.1.nip.io code.127.0.0.1.nip.io archon-mcp.127.0.0.1.nip.io"
+DOMAINS_DEFAULT="localhost 127.0.0.1 ::1 *.127.0.0.1.nip.io traefik.127.0.0.1.nip.io archon.127.0.0.1.nip.io archon-api.127.0.0.1.nip.io archon-mcp.127.0.0.1.nip.io supabase.127.0.0.1.nip.io studio.127.0.0.1.nip.io llm.127.0.0.1.nip.io cipher.127.0.0.1.nip.io cipher-mcp.127.0.0.1.nip.io code.127.0.0.1.nip.io"
 # Allow override via DEV_DOMAINS in .env (space-separated)
 read -r -a DOMAINS <<< "${DEV_DOMAINS:-$DOMAINS_DEFAULT}"
 
