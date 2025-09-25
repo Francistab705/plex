@@ -14,10 +14,29 @@ services:
   - name: rest
     url: http://supabase-rest:3000
     routes:
+      # Normal REST route (unchanged)
       - name: rest_v1
         paths: ["/rest/v1"]
         strip_path: true
         methods: ["GET","POST","PATCH","PUT","DELETE","OPTIONS"]
+
+      # NEW: dedicate HEAD to a separate route so we can transform headers
+      - name: rest_v1_head
+        paths: ["/rest/v1"]
+        strip_path: true
+        methods: ["HEAD"]
+        plugins:
+          - name: request-transformer
+            config:
+              # PostgREST chokes on object mode when multiple rows exist.
+              remove:
+                headers:
+                  - "Accept"
+              add:
+                headers:
+                  - "Accept: application/json"
+                  # helps clients know counts without fetching bodies
+                  - "Prefer: count=exact"
 
   - name: storage
     url: http://supabase-storage:5000
@@ -28,15 +47,14 @@ services:
         methods: ["GET","POST","PUT","DELETE","OPTIONS"]
 
   - name: realtime
-    # WS is handled over HTTP(S); point to /socket and strip the prefix
     url: http://supabase-realtime:4000/socket
     routes:
       - name: realtime_v1
         paths: ["/realtime/v1"]
         strip_path: true
-        protocols: ["http","https"]  # <-- no ws/wss on Kong 2.8
+        protocols: ["http","https"]
 
-# Global CORS (dev-friendly). Replace "*" with specific origins if you want.
+# Global CORS (dev)
 plugins:
   - name: cors
     config:

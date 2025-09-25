@@ -54,6 +54,10 @@ services:
       until pg_isready -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do sleep 1; done
       echo "✅ Postgres is ready"
 
+      # Make unqualified names resolve to public first (types), then auth
+      psql -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "ALTER DATABASE \"$POSTGRES_DB\" SET search_path = public, auth, extensions;"
+
       # --- Core Supabase/Archon bits (unchanged) ---
       psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
       create extension if not exists vector;
@@ -89,6 +93,25 @@ services:
         on insert to public.schema_migrations
         do instead insert into auth.schema_migrations values (new.version);
       SQL
+
+      # --- GUARDED: create MFA enums without short-circuiting ---
+      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+      DO $$
+      BEGIN
+        -- Create in auth schema so GoTrue finds them
+        BEGIN
+          CREATE TYPE auth.factor_type AS ENUM ('totp','webauthn');
+        EXCEPTION WHEN duplicate_object THEN NULL; END;
+
+        BEGIN
+          CREATE TYPE auth.factor_status AS ENUM ('unverified','verified');
+        EXCEPTION WHEN duplicate_object THEN NULL; END;
+
+        BEGIN
+          CREATE TYPE auth.aal_level AS ENUM ('aal1','aal2','aal3');
+        EXCEPTION WHEN duplicate_object THEN NULL; END;
+      END $$;
+
 
       # --- Realtime migration table guard (unchanged) ---
       psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
@@ -134,12 +157,12 @@ services:
       end $$;
       SQL
 
-      # --- NEW: Cipher app role + schema (idempotent) ---
+      # --- Cipher role & schema (unchanged) ---
       psql -v ON_ERROR_STOP=1 \
-           -v app_user="$CIPHER_DB_USER" \
-           -v app_pass="$CIPHER_DB_PASSWORD" \
-           -v app_schema="$CIPHER_DB_SCHEMA" \
-           -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+          -v app_user="$CIPHER_DB_USER" \
+          -v app_pass="$CIPHER_DB_PASSWORD" \
+          -v app_schema="$CIPHER_DB_SCHEMA" \
+          -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
       do $$
       begin
         if not exists (select 1 from pg_roles where rolname = :'app_user') then
@@ -149,14 +172,8 @@ services:
       $$;
 
       create schema if not exists :"app_schema" authorization :"app_user";
-
-      -- Ensure Cipher writes to its own schema by default
       alter role :"app_user" set search_path = :"app_schema", public, extensions;
-
-      -- Let the app use public + extensions (for uuid, vector, etc.)
       grant usage on schema public, extensions to :"app_user";
-
-      -- Sensible defaults for future objects in the cipher schema
       alter default privileges in schema :"app_schema" grant all on tables    to :"app_user";
       alter default privileges in schema :"app_schema" grant all on sequences to :"app_user";
       alter default privileges in schema :"app_schema" grant all on functions to :"app_user";
@@ -170,7 +187,7 @@ services:
         psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /bootstrap/complete_setup.sql
       fi
 
-      # Ask PostgREST (if present) to refresh its schema cache
+      # Ask PostgREST to refresh its schema cache
       psql -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "NOTIFY pgrst, 'reload schema';"
 
       echo "✅ db-init-supabase guard done"
@@ -423,7 +440,7 @@ services:
   archon-server:
     depends_on:
       db-init-supabase: { condition: service_completed_successfully }
-      supabase-kong:    { condition: service_healthy }   # Kong should have a healthcheck
+      supabase-kong:    { condition: service_started }   # Kong should have a healthcheck
       
 ###########################################################################
 # LiteLLM (DB bootstrap → migrations → proxy/UI)
