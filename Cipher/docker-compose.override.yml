@@ -5,28 +5,33 @@ services:
       context: /Users/maf001h/Documents/personal_projects/coding/programs/Cipher
       args:
         BUILD_UI: "true"
-    networks: [app-network]
+        # Bake the UI to call the backend on the same origin via /api
+        NEXT_PUBLIC_API_BASE: "/api"
+        NEXT_PUBLIC_API_URL: "/api"
+        CIPHER_PUBLIC_API_URL: "/api"
     env_file:
       - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/.env.plex
     environment:
-      - API_PREFIX=        # leave blank; health lives at /health
-      - CIPHER_MCP_TRANSPORT=sse
-      - TRUST_PROXY=1
-    command:
-      [
-        "sh", "-c",
-        "node dist/src/app/index.cjs --mode ui --port 4000 --host 0.0.0.0 --agent /app/memAgent/cipher.yml --mcp-transport-type sse --mcp-host 0.0.0.0 --mcp-port 4001"
-      ]
+      # keep API on /api
+      API_PREFIX: "/api"
+      TRUST_PROXY: "1"
+      CIPHER_MCP_TRANSPORT: "sse"
+      PORT: "3000"        # UI
+      CIPHER_PG_URL: "postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}?sslmode=disable"
+      DATABASE_URL:  "postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}?sslmode=disable"
+    command: [
+      "sh","-c",
+      # Don't point the UI at 4000. Let envs control ports; API will still bind 4000, UI 3000.
+      "node dist/src/app/index.cjs --mode ui --host 0.0.0.0 --agent /app/memAgent/cipher.yml --mcp-transport-type sse --mcp-host 0.0.0.0"
+    ]
     ports:
-     - "4000:4000"
-     - "3000:3000"
+      - "3000:3000"  # UI
+      - "3001:3001"
     volumes:
       - /Users/maf001h/Documents/personal_projects/coding/programs/plex/Cipher/memAgent:/app/memAgent:ro
       - /Users/maf001h/Documents/personal_projects/coding/volumes/cipher:/app/.cipher
-    restart: unless-stopped
     depends_on:
       supabase-db: { condition: service_healthy }
       db-init-supabase: { condition: service_completed_successfully }
-
-volumes:
-  cipher-data:
+    restart: unless-stopped
+    networks: [app-network]
