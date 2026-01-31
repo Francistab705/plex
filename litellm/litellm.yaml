@@ -1,6 +1,6 @@
 general_settings:
   master_key: ${LITELLM_MASTER_KEY}
-  database_url: postgresql://postgres:Ic2i2fsuo14@supabase-db:5432/litellm
+  DATABASE_URL: "postgresql://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/litellm"
   prometheus_enabled: true
 
 model_list:

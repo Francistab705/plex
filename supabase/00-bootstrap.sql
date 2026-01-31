@@ -25,11 +25,19 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'auth' AND t.typname = 'factor_status'
+  ) THEN
+    CREATE TYPE auth.factor_status AS ENUM ('unverified', 'verified');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'auth' AND t.typname = 'aal_level'
   ) THEN
     CREATE TYPE auth.aal_level AS ENUM ('aal1', 'aal2', 'aal3');
   END IF;
 END $$;
+
 
 -- --- PRE-FIX GoTrue's bad backfill migration ---
 -- Original buggy migration compared uuid to text (id = user_id::text), which can error.

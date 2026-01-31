@@ -16,7 +16,7 @@ services:
       PGVECTOR_ENABLED: "true"
     volumes:
       - /Users/maf001h/Documents/personal_projects/coding/volumes/supabase/supabase_db:/var/lib/postgresql/data
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/supabase/00-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/supabase/00-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
     healthcheck:
       test: ["CMD-SHELL","pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} || exit 1"]
       interval: 10s
@@ -24,12 +24,46 @@ services:
       retries: 60
       start_period: 90s
 
+  supabase-mcp:
+    build:
+      context: /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/supabase
+    container_name: supabase-mcp
+    restart: unless-stopped
+    profiles: ["backend","supabase","full","agents"]
+    networks: [app-network]
+    depends_on:
+      db-init-supabase-mcp:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgresql://${MCP_DB_USER}:${MCP_DB_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}"
+    ports:
+      - "3333:3333"
+
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      '
+      npm -g i mcp-proxy @modelcontextprotocol/server-postgres &&
+      mcp-proxy --transport sse --host 0.0.0.0 --port 3333 -- \
+        npx -y @modelcontextprotocol/server-postgres "$DATABASE_URL"
+      '
+
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3333/sse').then(()=>process.exit(0)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+
+
+
 ###########################################################################
 # DB init for sinlge postges source 
 ###########################################################################
 
   db-init-supabase:
     image: postgres:15-alpine
+    container_name: db-init-supabase
     restart: "no"
     profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
@@ -192,8 +226,56 @@ services:
 
       echo "✅ db-init-supabase guard done"
 
+  db-init-supabase-mcp:
+    image: postgres:15-alpine
+    container_name: db-init-supabase-mcp
+    restart: "no"
+    profiles: ["backend","supabase","full","agents"]
+    networks: [app-network]
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      db-init-supabase:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+
+      # MCP role credentials (set in .env)
+      MCP_DB_USER: ${MCP_DB_USER:-supabase_mcp}
+      MCP_DB_PASSWORD: ${MCP_DB_PASSWORD:-change-me-now}
+    entrypoint: ["/bin/sh","-lc"]
+    command: |
+      set -eu
+      echo "⏳ creating/ensuring MCP role + grants..."
+
+      psql -v ON_ERROR_STOP=1 -h supabase-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -v mcp_user="$MCP_DB_USER" \
+        -v mcp_pass="$MCP_DB_PASSWORD" <<'SQL'
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'mcp_user') THEN
+          EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'mcp_user', :'mcp_pass');
+        END IF;
+      END $$;
+
+      GRANT CONNECT ON DATABASE postgres TO :"mcp_user";
+      GRANT USAGE ON SCHEMA public TO :"mcp_user";
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"mcp_user";
+      GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO :"mcp_user";
+
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"mcp_user";
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public
+        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO :"mcp_user";
+      SQL
+
+      echo "✅ MCP role ready"
+
   db-init-litellm:
     image: postgres:15-alpine
+    container_name: db-init-litellm
     restart: "no"
     profiles: ["backend","litellm","unsecure","full"]
     networks: [app-network]
@@ -356,8 +438,7 @@ services:
     depends_on:
       supabase-db: { condition: service_healthy }
       db-init-supabase: { condition: service_completed_successfully }
-      supabase-auth:
-        condition: service_started
+      # supabase-auth: {condition: service_started}
     environment:
       ANON_KEY: ${ANON_KEY}
       SERVICE_KEY: ${SERVICE_ROLE_KEY}
@@ -382,14 +463,7 @@ services:
     profiles: ["backend","supabase","unsecure","full"]
     networks: [app-network]
     depends_on:
-      supabase-auth:
-        condition: service_started
-      supabase-rest:
-        condition: service_started
-      supabase-realtime:
-        condition: service_started
-      supabase-storage:
-        condition: service_started
+      supabase-db: { condition: service_healthy }
     environment:
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
       KONG_DATABASE: off
@@ -407,7 +481,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/supabase/kong.yml:/home/kong/kong.yml:ro
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/supabase/kong.yml:/home/kong/kong.yml:ro
 
   supabase-studio:
     image: supabase/studio:2025.08.18-sha-c153df2
@@ -448,6 +522,7 @@ services:
 #Runs Prisma migrations (one-shot, exits when done)
   litellm-migrate:
     image: ghcr.io/berriai/litellm-database:main-stable
+    container_name:  litellm-migrate
     restart: "no"
     profiles: ["backend","litellm","unsecure","full"]
     networks: [app-network]
@@ -457,7 +532,7 @@ services:
       db-init-litellm:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/litellm"
+      DATABASE_URL: "postgresql://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/litellm"
 
   # LiteLLM proxy/UI (long-running, behind Traefik)
   litellm:
@@ -468,10 +543,8 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-      db-init-litellm:
-        condition: service_completed_successfully
-      litellm-migrate:
-        condition: service_started
+      # litellm-migrate:
+      #   condition: service_completed_successfully
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}
@@ -480,8 +553,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STORAGE_BACKEND: file
+      DATABASE_URL: "postgresql://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/litellm"
+
     volumes:
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/litellm/litellm.yaml:/app/config.yaml:ro
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/litellm/litellm.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--detailed_debug", "--host", "0.0.0.0", "--port", "4000"]
 
 networks:

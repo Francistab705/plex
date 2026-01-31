@@ -34,7 +34,9 @@ mkcert -cert-file "$CERTS_DIR/local-cert.pem" \
 cp "$(mkcert -CAROOT)/rootCA.pem" "$CERTS_DIR/rootCA.pem"
 
 # Dynamic TLS file for Traefik
-cat > /traefik/certs.yaml <<'YAML'
+CERTS_YAML="${CERTS_YAML:-./traefik}"
+mkdir -p "$CERTS_YAML"
+cat > "${CERTS_YAML}/certs.yaml" <<'YAML'
 tls:
   certificates:
     - certFile: /etc/traefik/certs/local-cert.pem
@@ -49,7 +51,8 @@ YAML
 # The only missing step is telling Python to use the system bundle, not Certifi's.
 #
 # This env file can be added to services via `env_file:` in docker compose.
-CA_ENV_FILE="traefik/env.d/ca.env"
+CA_ENV_FILE="${CERTS_YAML}/env.d/ca.env"
+mkdir -p "$(dirname "$CA_ENV_FILE")"
 cat > "$CA_ENV_FILE" <<'ENV'
 # Make Python/Requests/HTTPX use the system bundle (which includes mkcert root after update-ca-certificates)
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

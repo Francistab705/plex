@@ -21,12 +21,13 @@ services:
   # Traefik (Edge proxy)
   ###########################################################################
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6.7
     container_name: traefik
     profiles: ["backend", "frontend", "full"]
     command:
       - --api.dashboard=true
       - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
@@ -42,9 +43,9 @@ services:
       - "443:443"
     networks: [app-network]
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/traefik/certs.yaml:/etc/traefik/dynamic/certs.yaml:ro
-      - /Users/maf001h/Documents/personal_projects/coding/programs/plex/traefik/certs:/etc/traefik/certs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/traefik/certs.yaml:/etc/traefik/dynamic/certs.yaml:ro
+      - /Users/maf001h/Documents/personal_projects/coding/agents/yung_metro/plex/traefik/certs:/etc/traefik/certs:ro
     labels:
       - traefik.enable=true
       # Dashboard at https://traefik.localhost (basic auth from TRAEFIK_DASHBOARD_USERS)
@@ -194,7 +195,7 @@ services:
 ###########################################################################
 # Cipher
 ###########################################################################
-  cipher:
+  cipher-api:
     profiles: ["backend","cipher","unsecure","full"]
     networks: [app-network]
     labels:
@@ -205,13 +206,13 @@ services:
       - traefik.http.routers.cipher-ui.rule=Host(`cipher.127.0.0.1.nip.io`)
       - traefik.http.routers.cipher-ui.entrypoints=websecure
       - traefik.http.routers.cipher-ui.tls=true
-      - traefik.http.services.cipher-ui.loadbalancer.server.port=3000
+      - traefik.http.services.cipher-ui.loadbalancer.server.port=5000
 
       # --- API / MCP SSE (Node API on port 4000) ---
       - traefik.http.routers.cipher-mcp.rule=Host(`cipher-mcp.127.0.0.1.nip.io`)
       - traefik.http.routers.cipher-mcp.entrypoints=websecure
       - traefik.http.routers.cipher-mcp.tls=true
-      - traefik.http.services.cipher-mcp.loadbalancer.server.port=4000
+      - traefik.http.services.cipher-mcp.loadbalancer.server.port=5001
 networks:
   app-network:
     driver: bridge

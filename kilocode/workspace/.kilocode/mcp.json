@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "archon": {
+      "type": "streamable-http",
+      "url": "http://archon-mcp:8051/mcp",
+      "headers": {},
+      "alwaysAllow": [],
+      "disabled": false
+    }
+  }
+}

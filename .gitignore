@@ -3,4 +3,3 @@ traefik/certs/local-key.pem
 traefik/certs/local-cert.pem
 traefik/env.d/ca.env
 .DS_Store
-/Users/maf001h/Documents/personal_projects/coding/programs/plex/vscodium/config
